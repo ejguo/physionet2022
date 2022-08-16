@@ -4,6 +4,40 @@ import torch
 from torchsummary import summary
 
 
+class C2F2(nn.Module):
+    def __init__(self, n_mfcc, out_features):
+        super(C2F2, self).__init__()
+        self.conv1 = nn.Conv2d(1, 4, (2, 20), padding='same')
+        self.pool1 = nn.MaxPool2d((1, 20), stride=(1, 5), padding=(0, 8))
+        self.conv2 = nn.Conv2d(4, 8, (2, 10), padding='same')
+        self.pool2 = nn.MaxPool2d((1, 4), stride=(1, 2), padding=(0, 1))
+        self.fc1 = nn.Linear(8*n_mfcc*30, 1024)
+        self.fc2 = nn.Linear(1024, 512)
+        self.fc3 = nn.Linear(512, out_features)
+        self.softmax = nn.Softmax(dim=1)
+
+    def forward(self, x):
+        # print(x.shape)
+        x = F.leaky_relu((self.conv1(x)))
+        # print(x.shape)
+        x = self.pool1(x)
+        # print(x.shape)
+        x = F.relu(self.conv2(x))
+        # print(x.shape)
+        x = self.pool2(x)
+        # print(x.shape)
+        x = x.view(x.size(0), -1)
+        # print(x.shape)
+        x = F.relu(self.fc1(x))
+        # print(x.shape)
+        x = F.relu(self.fc2(x))
+        # print(x.shape)
+        x = F.relu(self.fc3(x))
+        # print(x.shape)
+        x = self.softmax(x)
+        return x
+
+
 # CNN_cc_lll:
 #   (B, in_features)   conv -> leaky_relu -> pool(20) ->
 #   (B, 32, in/20)   conv -> leaky_relu -> pool(4) ->
@@ -12,8 +46,6 @@ from torchsummary import summary
 #   (B, 1024)    linear -> bn -> leaky_relu ->
 #   (B, 512)     linear -> leaky_relu
 #   (B, out_features)
-
-
 class SimpleCNN(nn.Module):
     def __init__(self, in_features, out_features):
         super(SimpleCNN, self).__init__()
@@ -24,6 +56,87 @@ class SimpleCNN(nn.Module):
         self.pool2 = nn.MaxPool1d(4, stride=3, padding=1)  # L = L // 4
 
         self.linear1 = nn.Linear(2048, 1024)  # L * 64
+        self.bn2 = nn.BatchNorm1d(1024)
+        self.linear2 = nn.Linear(1024, 512)
+        self.bn3 = nn.BatchNorm1d(512)
+        self.linear3 = nn.Linear(512, out_features)
+        self.bn4 = nn.BatchNorm1d(out_features)
+        self.softmax = nn.Softmax(dim=1)
+
+    def forward(self, x):
+        print(x.shape)
+        x = F.leaky_relu(self.conv1(x))
+        print(x.shape)
+        x = self.pool1(x)
+        print(x.shape)
+        x = F.leaky_relu(self.conv2(x))
+        print(x.shape)
+        x = self.pool2(x)
+        print(x.shape)
+        x = x.view(x.size(0), -1)
+        print(x.shape)
+        x = F.leaky_relu(self.linear1(x))
+        print(x.shape)
+        x = F.leaky_relu(self.bn3(self.linear2(x)))
+        print(x.shape)
+        x = F.leaky_relu(self.linear3(x))
+        print(x.shape)
+        x = self.softmax(x)
+        return x
+
+
+class WaveCNN(nn.Module):
+    def __init__(self, in_features, out_features):
+        super(WaveCNN, self).__init__()
+        self.conv0 = nn. Conv1d(in_features, 4, 1)
+        self.conv1 = nn.Conv1d(4, 32, 3, padding=1)  # L = num_samples
+        self.pool1 = nn.MaxPool1d(20, stride=5, padding=2)  # L = L // 20
+        self.conv2 = nn.Conv1d(32, 64, 3, padding=1)
+        self.bn1 = nn.BatchNorm1d(64)
+        self.pool2 = nn.MaxPool1d(4, stride=3, padding=1)  # L = L // 4
+
+        self.linear1 = nn.Linear(68224, 1024)  # L * 64
+        self.bn2 = nn.BatchNorm1d(1024)
+        self.linear2 = nn.Linear(1024, 512)
+        self.bn3 = nn.BatchNorm1d(512)
+        self.linear3 = nn.Linear(512, out_features)
+        self.bn4 = nn.BatchNorm1d(out_features)
+        self.softmax = nn.Softmax(dim=1)
+
+    def forward(self, x):
+        print(x.shape)
+        x = F.leaky_relu(self.conv0(x))
+        print(x.shape)
+        x = F.leaky_relu(self.conv1(x))
+        print(x.shape)
+        x = self.pool1(x)
+        print(x.shape)
+        x = F.leaky_relu(self.conv2(x))
+        print(x.shape)
+        x = self.pool2(x)
+        print(x.shape)
+        x = x.view(x.size(0), -1)
+        print(x.shape)
+        x = F.leaky_relu(self.linear1(x))
+        print(x.shape)
+        x = F.leaky_relu(self.bn3(self.linear2(x)))
+        print(x.shape)
+        x = F.leaky_relu(self.linear3(x))
+        print(x.shape)
+        x = self.softmax(x)
+        return x
+
+
+class MurmurModel1(nn.Module):
+    def __init__(self, in_features, out_features):
+        super(MurmurModel1, self).__init__()
+        self.conv1 = nn.Conv1d(in_features, 32, 3, padding=1)
+        self.pool1 = nn.MaxPool1d(20, stride=5, padding=2)
+        self.conv2 = nn.Conv1d(32, 64, 3, padding=1)
+        self.bn1 = nn.BatchNorm1d(64)
+        self.pool2 = nn.MaxPool1d(4, stride=3, padding=1)
+
+        self.linear1 = nn.Linear(2048, 1024)
         self.bn2 = nn.BatchNorm1d(1024)
         self.linear2 = nn.Linear(1024, 512)
         self.bn3 = nn.BatchNorm1d(512)
@@ -44,11 +157,8 @@ class SimpleCNN(nn.Module):
         x = x.view(x.size(0), -1)
         # print(x.shape)
         x = F.leaky_relu(self.linear1(x))
-        # print(x.shape)
         x = F.leaky_relu(self.bn3(self.linear2(x)))
-        # print(x.shape)
         x = F.leaky_relu(self.linear3(x))
-        # print(x.shape)
         x = self.softmax(x)
         return x
 

@@ -472,7 +472,7 @@ def print_evaluation(murmur_labels, murmur_scalar_outputs, outcome_labels, outco
 def print_patient_evaluation(data_dir, ids, murmur_probs, outcome_probs, verbose):
     print("Patient evaluation:")
     num_patients = len(ids)
-    if verbose > 0:
+    if verbose > 2:
         print(f"Input sizes: {len(ids)} {len(murmur_probs)} {len(outcome_probs)}")
         print(f"num patients: {num_patients}")
 
@@ -487,7 +487,7 @@ def print_patient_evaluation(data_dir, ids, murmur_probs, outcome_probs, verbose
     start = 0
     for i in range(num_patients):
         end = ids[i, 1]
-        if verbose > 1:
+        if verbose > 2:
             print(f"patient {ids[i]}")
             for j in range(start, end):
                 print(f"{murmur_probs[j]}  {outcome_probs[j]}")
@@ -506,7 +506,7 @@ def print_patient_evaluation(data_dir, ids, murmur_probs, outcome_probs, verbose
         patient_outcome_labels[i, j] = 1
         start = end
 
-    if verbose > 1:
+    if verbose > 2:
         for i in range(num_patients):
             print(f"{ids[i, 0]}  {patient_murmur_probs[i]}  {patient_murmur_labels[i]}  {patient_outcome_probs[i]}  {patient_outcome_labels[i]}")
 

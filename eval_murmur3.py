@@ -38,8 +38,6 @@ if __name__ == "__main__":
     correct = 0
     for i in test_indices[:n]:
         x, y = dataset[i]  # [batch size, num_channels, fr, time]
-
-
         model.eval()
         with torch.no_grad():
             y1 = model(x.unsqueeze_(0))

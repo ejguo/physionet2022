@@ -1,5 +1,9 @@
+import os
+
 import librosa, librosa.display
 import matplotlib.pyplot as plt
+import torch
+import torchaudio
 from IPython.display import Audio, display
 import numpy as np
 
@@ -23,6 +27,61 @@ def plot_waveform(waveform, sample_rate, title="Waveform", xlim=None, ylim=None)
       axes[c].set_ylim(ylim)
   figure.suptitle(title)
   plt.show(block=True)
+
+
+def plot_one_sr_waveform(waveform, sample_rate, title="Waveform", xlim=None, ylim=None):
+  # waveform = waveform.numpy()
+
+  num_channels, num_frames = waveform.shape
+  num_points = sample_rate * 4
+  if num_frames < num_points:
+    num_points = num_frames
+  time_axis = torch.arange(0, num_points) / sample_rate
+
+  figure, axes = plt.subplots(num_channels, 1)
+  if num_channels == 1:
+    axes = [axes]
+  for c in range(num_channels):
+    waveform1 = waveform[c]
+    waveform2 = waveform1[: num_points]
+    axes[c].plot(time_axis, waveform2, linewidth=1)
+    axes[c].grid(True)
+    if num_channels > 1:
+      axes[c].set_ylabel(f'Channel {c+1}')
+    if xlim:
+      axes[c].set_xlim(xlim)
+    if ylim:
+      axes[c].set_ylim(ylim)
+  figure.suptitle(title)
+  plt.show(block=True)
+
+
+def plot_wave_segment(waveform, sample_rate, title="Waveform", xlim=None, ylim=None):
+  # waveform = waveform.numpy()
+
+  num_channels, num_frames = waveform.shape
+  num_points = sample_rate * 4
+  if num_frames < num_points:
+    num_points = num_frames
+  time_axis = torch.arange(0, num_points) / sample_rate
+
+  figure, axes = plt.subplots(num_channels, 1)
+  if num_channels == 1:
+    axes = [axes]
+  for c in range(num_channels):
+    waveform1 = waveform[c]
+    waveform2 = waveform1[: num_points]
+    axes[c].plot(time_axis, waveform2, linewidth=1)
+    axes[c].grid(True)
+    if num_channels > 1:
+      axes[c].set_ylabel(f'Channel {c+1}')
+    if xlim:
+      axes[c].set_xlim(xlim)
+    if ylim:
+      axes[c].set_ylim(ylim)
+  figure.suptitle(title)
+  plt.show(block=True)
+
 
 def plot_specgram(waveform, sample_rate, title="Spectrogram", xlim=None):
   waveform = waveform.numpy()
@@ -80,14 +139,14 @@ def plot_mel_fbank(fbank, title=None):
   axs.set_xlabel('mel bin')
   plt.show(block=False)
 
-def get_spectrogram(
+def get_spectrogram(waveform,
     n_fft = 400,
     win_len = None,
     hop_len = None,
     power = 2.0,
 ):
-  waveform, _ = get_speech_sample()
-  spectrogram = T.Spectrogram(
+  # waveform, _ = get_speech_sample()
+  spectrogram = torchaudio.transforms.Spectrogram(
       n_fft=n_fft,
       win_length=win_len,
       hop_length=hop_len,

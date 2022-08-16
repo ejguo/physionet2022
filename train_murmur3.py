@@ -87,6 +87,7 @@ class MurmurModel2(nn.Module):
         x = self.softmax(x)
         return x
 
+
 class MurmurModel3(nn.Module):
     def __init__(self):
         super(MurmurModel3, self).__init__()
@@ -178,7 +179,7 @@ if __name__ == "__main__":
     model = MurmurModel1().to(device)
 
     train_data = SimpleDataset(x, y)
-    train_dataloader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    train_dataloader = DataLoader(train_data, batch_size=batch_size, shuffle=False)
     # weights = [0.7, 0.1, 0.3, 0.5, 0.5]
     weights = [0.5, 0.8, 0.1]
     weights = torch.tensor(weights, dtype=torch.float)

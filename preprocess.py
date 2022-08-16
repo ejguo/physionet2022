@@ -1,7 +1,10 @@
 
 import csv
 import os
+
+import numpy as np
 import torch
+import torch.nn.functional as F
 import torchaudio
 
 from helper_code import *
@@ -22,6 +25,10 @@ def load_wave(data_dir, wav_file):
 #    so that it contains whole cycles of segments 1-2-3-4.
 #    Because the tsv_file was created not perfectly (badly), there might
 #    be bad cycles like 4-3-1-4. But I think that were due bad segmentation.
+#
+#    Often, wave starts and ends with segment labeled 0. We will cut these parts.
+#    It's possible the segments left may still be labeled 0. But I believe
+#    it is a mistake of the segmentation program.
 def get_wave_whole_cycles(data_dir, wav_file, tsv_file):
     wave, sr = load_wave(data_dir, wav_file)
 
@@ -145,6 +152,7 @@ def get_data(data_dir, verbose):
 
         waves = {}
         num_errors = 0
+        patient_murmur = get_murmur(data)
         for j in range(num_current_locations):
             entries = recording_information[j].split(' ')
             loc = entries[0]
@@ -158,10 +166,17 @@ def get_data(data_dir, verbose):
                 murmur = loc in murmur_locations
             wave['murmur'] = murmur
             waves[loc] = wave
+            murmur_str = patient_murmur
+            if murmur:
+                murmur_str = 'Present'
+            # wave_plot = wave['wav']
+            # wave_plot = wave_plot.clip(-0.25, 0.25)
+            # if murmur_str != 'Absent':
+            # plot_one_sr_waveform(np.expand_dims(wave_plot, 0), 4000, title=murmur_str)
 
         d = {'id': get_patient_id(data), 'waves': waves, 'age': get_age(data), 'sex': get_sex(data),
              'height': get_height(data), 'weight': get_weight(data),
-             'pregnancy': get_pregnancy_status(data), 'murmur': get_murmur(data), 'outcome': get_outcome(data)}
+             'pregnancy': get_pregnancy_status(data), 'murmur': patient_murmur, 'outcome': get_outcome(data)}
         data_list.append(d)
         if num_errors > 0:
             print(f"WARN {num_errors} were found ")
@@ -172,7 +187,88 @@ def get_data(data_dir, verbose):
 # each outcome ['Abnormal', 'Normal']
 
 
-def get_ids_mfccs_murmurs_outcomes(data_dir, n_fft, hop_length, n_mels, verbose):
+def pad_wave(wave, length, padding):
+    wave_len = wave.size(dim=0)
+    multiple = length // wave_len + 1
+    if padding == 'repeat':
+        wave = wave.expand((multiple, wave_len)).flatten()
+    elif padding == 'zero_left':
+        wave = F.pad(wave, (0, length - wave_len), "constant", 0)
+    elif padding == 'zero_center':
+        left = (length - wave_len) // 2
+        wave = F.pad(wave, (left, length - left), "constant", 0)
+    return wave[: length]
+
+
+def get_ids_waves_murmurs_outcomes(data_dir, config, verbose):
+    """
+    returns ids, waves, murmurs, outcomes
+
+    ids: (942, 2) 942 patients of (id, num_waves_so_far)
+    waves: (num_waves, 4000*seconds), seconds = config['wave_seconds']
+    murmurs: (num_waves, 3)
+    outcomes: (num_waves, 2)
+    """
+    data = get_data(data_dir, verbose)
+    num_patients = len(data)
+    ids = np.zeros((num_patients, 2), dtype=int)
+    wave_len = 4000 * config.getint('wave_seconds')
+    stride = 4000 * config.getint('wave_stride')
+    # win_length = config.getint('win_length')
+    # hop_length = config.getint('hop_length')
+    # wave_len += win_length - hop_length  # this extra size is treated as padding
+    rand_indices = torch.randperm(num_patients)
+
+    # find num_waves = 14391
+    # pat_num_waves = list()
+    num_waves = 0
+    for i in range(num_patients):
+        patient_data = data[rand_indices[i]]
+        n_waves_for_this_patient = 0
+        for location_wave in patient_data['waves'].values():
+            n = location_wave['wav'].size(dim=0)
+            if n < wave_len:
+                location_wave['wav'] = F.pad(location_wave['wav'], (0, wave_len - n), "constant", 0)
+                n_waves_for_this_patient += 1
+            else:
+                n_waves_for_this_patient += (n - wave_len) // stride + 1
+        num_waves += n_waves_for_this_patient
+        ids[i, 0] = patient_data['id']
+        ids[i, 1] = num_waves
+        # pat_num_waves.append(n_waves)
+    # print(f"total num waves = {np.sum(pat_num_waves)}")
+    waves = torch.zeros((num_waves, wave_len), dtype=torch.float32)
+    murmurs = torch.zeros((num_waves, len(murmur_classes)), dtype=torch.float32)
+    outcomes = torch.zeros((num_waves, len(outcome_classes)), dtype=torch.float32)
+
+    num_waves = 0
+    for i in range(num_patients):
+        patient_data = data[rand_indices[i]]
+        location_waves = patient_data['waves'].values()
+        for location_wave in location_waves:
+            j_murmur = murmur_classes.index('Absent')
+            if location_wave['murmur']:
+                j_murmur = murmur_classes.index('Present')
+            elif compare_strings(patient_data['murmur'], 'Unknown'):
+                j_murmur = murmur_classes.index('Unknown')
+            j_outcome = outcome_classes.index(patient_data['outcome'])
+
+            wave = location_wave['wav']
+            num_strides = (wave.size(dim=0) - wave_len) // stride + 1
+            start = 0
+            for k in range(num_strides):
+                waves[num_waves] = wave[start : start + wave_len]
+                if verbose > 2:
+                    print(f"setting patient {i} len {wave.size(dim=0)} stride {k} wave {num_waves}")
+                start += stride
+                murmurs[num_waves, j_murmur] = 1
+                outcomes[num_waves, j_outcome] = 1
+                num_waves += 1
+
+    return ids, waves, murmurs, outcomes
+
+
+def get_ids_mfccs_murmurs_outcomes(data_dir, padding, n_fft, hop_length, n_mels, verbose):
     data = get_data(data_dir, verbose)
 
     # find max_len of waves
@@ -199,22 +295,16 @@ def get_ids_mfccs_murmurs_outcomes(data_dir, n_fft, hop_length, n_mels, verbose)
     outcomes = torch.zeros((num_waves, len(outcome_classes)), dtype=torch.float32)
     num_data = len(data)
     rand_indices = torch.randperm(num_data)
-    next_data_idx = 0
+    next_patient_wave_idx = 0
     i = 0
-    for i_data in range(len(data)):
-        patient_data = data[rand_indices[i_data]]
-        ids[i_data, 0] = patient_data['id']
+    for patient_idx in range(len(data)):
+        patient_data = data[rand_indices[patient_idx]]
+        ids[patient_idx, 0] = patient_data['id']
         location_waves = patient_data['waves'].values()
-        next_data_idx += len(location_waves)
-        ids[i_data, 1] = next_data_idx
+        next_patient_wave_idx += len(location_waves)
+        ids[patient_idx, 1] = next_patient_wave_idx
         for location_wave in location_waves:
-            wav = location_wave['wav']
-            wav_len = wav.size(dim=0)
-            repeat = max_len // wav_len + 1
-            wav1 = wav.expand((repeat, wav_len))
-            wav2 = wav1.flatten()
-            wav3 = wav2[: max_len]
-            mfcc = mel_spectrogram(wav3)
+            mfcc = mel_spectrogram(pad_wave(location_wave['wav'], max_len, padding))
             for j in range(n_mels):
                 mfccs[i, j] = mfcc[j]
             j = murmur_classes.index('Absent')
@@ -402,6 +492,7 @@ if __name__ == "__main__":
     data = get_data(data_dir, verbose)
     print(f"got {len(data)} data")
     print(f"data[0] = {data[0]}")
+
 
     n_fft = 1024
     hop_length = 512   # max_len = 152080, try to get 300 time banks, hop_length = 507 or 508

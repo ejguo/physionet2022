@@ -4,13 +4,16 @@ from torch.utils.data import Dataset, DataLoader
 
 
 class SimpleDataset(Dataset):
-    def __init__(self, x, y):
+    def __init__(self, x, y, transform=None):
         self.x = x
         self.y = y
+        self.transform = transform
 
     def __getitem__(self, index):
         x = self.x[index]
         y = self.y[index]
+        if self.transform:
+            x = self.transform(x)
         return x, y
 
     def __len__(self):
@@ -40,9 +43,8 @@ def print_parameters(model):
 
 def train(model, data_loader, loss_fn, optimiser, device, epochs):
     for i in range(epochs):
-        print(f"Epoch {i + 1}")
+        print(f"Epoch {i + 1}", end=' ')
         train_single_epoch(model, data_loader, loss_fn, optimiser, device)
-        print("---------------------------")
         # print_parameters(model)
     print("Finished training")
 
@@ -72,7 +74,7 @@ def test(model, dataset, loss_fn, device, verbose):
             y1 = model(x.unsqueeze(0))[0]
             if torch.argmax(y1) == torch.argmax(y):
                 n_correct += 1
-            if verbose > 1:
+            if verbose > 2:
                 print(f"y: {y} {y1}")
             y_array[i] = y
             y1_array[i] = y1
@@ -80,3 +82,24 @@ def test(model, dataset, loss_fn, device, verbose):
 
         print(f"Test average loss: {np.mean(losses)} accuracy: {n_correct / len(dataset)}")
         return y_array.numpy(), y1_array.numpy()
+
+
+def gen_wave_ids(ids):
+    """convert ids[i,j] into a list o.f ids, each for a wave"""
+    n = -1
+    id_list = []
+    for patient_id in ids:
+        for n in range(n + 1, patient_id[1]):
+            id_list.append(patient_id[0])
+    return id_list
+
+
+def check_dataloader(dataloader, ids):
+    id_list = gen_wave_ids(ids)
+
+    for _, batch_y in dataloader:
+        for y in batch_y:
+            print(f"{id_list.pop(0)} {y}")
+
+    assert not id_list, "ids contains more waves than dataloader"
+
