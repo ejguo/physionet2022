@@ -3,38 +3,35 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 
-class SimpleDataset(Dataset):
-    def __init__(self, x, y, transform=None):
-        self.x = x
-        self.y = y
-        self.transform = transform
-
-    def __getitem__(self, index):
-        x = self.x[index]
-        y = self.y[index]
-        if self.transform:
-            x = self.transform(x)
-        return x, y
-
-    def __len__(self):
-        return len(self.x)
-
 
 def train_single_epoch(model, data_loader, loss_fn, optimiser, device):
+    _, y = next(iter(data_loader))
+    y_size = y.shape[1]
+    confusion = np.zeros((y_size, y_size), dtype=int)
     losses = list()
     model.train()
+    n_total = 0
+    n_correct = 0
     for x, y in data_loader:
         x, y = x.to(device), y.to(device)
         y1 = model(x)
+        index1 = torch.argmax(y1, dim=1)
+        index = torch.argmax(y, dim=1)
+        for idx1, idx in torch.stack((index1, index), dim=1):
+            confusion[idx1, idx] += 1
+        n_total += y.size(0)
+        n_correct += torch.sum(index1 == index)
         loss = loss_fn(y1, y)
         losses.append(loss.item())
 
         optimiser.zero_grad()
         loss.backward()
+        # print(f"min {torch.min(model.conv1.weight.grad)} {torch.min(model.conv2.weight.grad)} {torch.min(model.conv3.weight.grad)} {torch.min(model.conv4.weight.grad)}")
+        # print(f"max {torch.max(model.conv1.weight.grad)} {torch.max(model.conv2.weight.grad)} {torch.max(model.conv3.weight.grad)} {torch.max(model.conv4.weight.grad)}")
         optimiser.step()
 
-    print(f"average loss: {np.mean(losses)}")
-
+    print(f"loss = {np.mean(losses)} accuracy = {n_correct / n_total}")
+    print(confusion)
 
 def print_parameters(model):
     for p in model.parameters():
@@ -65,6 +62,7 @@ def test(model, dataset, loss_fn, device, verbose):
     y_array = torch.zeros((num_samples, y_size), dtype=torch.float32)
     y1_array = torch.zeros((num_samples, y_size), dtype=torch.float32)
     losses = np.zeros(num_samples, dtype=float)
+    confusion = np.zeros((y_size, y_size), dtype=int)
     with torch.set_grad_enabled(False):
         model.eval()
         n_correct = 0
@@ -72,15 +70,21 @@ def test(model, dataset, loss_fn, device, verbose):
             x, y = dataset[i]
             x, y = x.to(device), y.to(device)
             y1 = model(x.unsqueeze(0))[0]
-            if torch.argmax(y1) == torch.argmax(y):
+            index1 = torch.argmax(y1)
+            index = torch.argmax(y)
+            confusion[index1, index] += 1
+            if index1 == index:
                 n_correct += 1
-            if verbose > 2:
-                print(f"y: {y} {y1}")
+            elif verbose > 1:
+                print(f"{y.cpu().numpy()} <> {y1.cpu().numpy()}")
             y_array[i] = y
             y1_array[i] = y1
             losses[i] = loss_fn(y1, y).item()
 
-        print(f"Test average loss: {np.mean(losses)} accuracy: {n_correct / len(dataset)}")
+        print(f"Test loss: {np.mean(losses)} accuracy: {n_correct / len(dataset)}")
+        print(f"Confusion matrix:")
+        print(confusion)
+
         return y_array.numpy(), y1_array.numpy()
 
 

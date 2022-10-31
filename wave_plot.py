@@ -8,7 +8,7 @@ from IPython.display import Audio, display
 import numpy as np
 
 def plot_waveform(waveform, sample_rate, title="Waveform", xlim=None, ylim=None):
-  waveform = waveform.numpy()
+  # waveform = waveform.numpy()
 
   num_channels, num_frames = waveform.shape
   time_axis = torch.arange(0, num_frames) / sample_rate

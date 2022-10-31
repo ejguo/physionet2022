@@ -6,6 +6,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torchaudio
+import matplotlib.pyplot as plt
+
+from torch.utils.data import Dataset, DataLoader
 
 from helper_code import *
 from wave_plot import *
@@ -57,7 +60,7 @@ def get_wave_whole_cycles(data_dir, wav_file, tsv_file):
                     end = float(row[1])
         wav = wave[0][int(start * sr): int(end * sr)]
         return {'wav': wav, 'seg': None}
-    raise
+
 
 # return  { 'wav': wav, 'seg': seg }
 #    segment 1:  wav[seg[0], seg[1]]
@@ -69,8 +72,6 @@ def get_wave_whole_cycles(data_dir, wav_file, tsv_file):
 # The S2 wave is identified by the integer 3.
 # The diastolic period is identified by the integer 4.
 # The unannotated segments of the signal are identified by the integer 0.
-
-
 def get_wave(data_dir, wav_file, tsv_file, segment=False, except_on_error=False):
     wav, sr = torchaudio.load(os.path.join(data_dir, wav_file))
     if not segment:
@@ -205,15 +206,18 @@ def get_ids_waves_murmurs_outcomes(data_dir, config, verbose):
     returns ids, waves, murmurs, outcomes
 
     ids: (942, 2) 942 patients of (id, num_waves_so_far)
-    waves: (num_waves, 4000*seconds), seconds = config['wave_seconds']
+    waves: (num_waves, 4000*seconds), seconds = config['seconds_per_wave']
     murmurs: (num_waves, 3)
     outcomes: (num_waves, 2)
     """
     data = get_data(data_dir, verbose)
     num_patients = len(data)
     ids = np.zeros((num_patients, 2), dtype=int)
-    wave_len = 4000 * config.getint('wave_seconds')
-    stride = 4000 * config.getint('wave_stride')
+    seconds_per_wave = config.getint('seconds_per_wave')
+    wave_stride = config.getint('wave_stride')
+    print(f"seconds_per_wave={seconds_per_wave}  wave_stride={wave_stride}")
+    wave_len = 4000 * seconds_per_wave
+    stride = 4000 * wave_stride
     # win_length = config.getint('win_length')
     # hop_length = config.getint('hop_length')
     # wave_len += win_length - hop_length  # this extra size is treated as padding
@@ -258,6 +262,7 @@ def get_ids_waves_murmurs_outcomes(data_dir, config, verbose):
             start = 0
             for k in range(num_strides):
                 waves[num_waves] = wave[start : start + wave_len]
+
                 if verbose > 2:
                     print(f"setting patient {i} len {wave.size(dim=0)} stride {k} wave {num_waves}")
                 start += stride
@@ -266,6 +271,7 @@ def get_ids_waves_murmurs_outcomes(data_dir, config, verbose):
                 num_waves += 1
 
     return ids, waves, murmurs, outcomes
+
 
 
 def get_ids_mfccs_murmurs_outcomes(data_dir, padding, n_fft, hop_length, n_mels, verbose):
@@ -381,6 +387,7 @@ def get_mfcc_murmur2(data_dir, n_fft, hop_length, n_mels, verbose):
 # transform each wave into MFCC to form X, zero padded; Y is murmur = [ 'Present', 'Unknown', 'Absent']
 def get_mfcc3(data_dir, n_fft, hop_length, n_mels, verbose):
     data = get_data(data_dir, verbose)
+    # data = data[800:]
     # find max_len of waves
     max_len = 0
     num_waves = 0
@@ -404,6 +411,7 @@ def get_mfcc3(data_dir, n_fft, hop_length, n_mels, verbose):
         n_mels=n_mels
     )
 
+    max_len = 255600
     time_banks = max_len // hop_length + 1
     signals = torch.zeros((num_waves, n_mels, time_banks), dtype=torch.float32)
     murmurs = torch.zeros((num_waves, 3), dtype=torch.float32)
@@ -485,6 +493,96 @@ def get_mfcc_outcome(data_dir, n_fft, hop_length, n_mels, verbose):
     # print_stat('time banks', len_list)
     return signals, outcomes
 
+class SimpleDataset(Dataset):
+    def __init__(self, x, y, transform=None):
+        self.x = x
+        self.y = y
+        self.transform = transform
+
+    def __getitem__(self, index):
+        x = self.x[index]
+        y = self.y[index]
+        if self.transform:
+            x = self.transform(x)
+        return x, y
+
+    def __len__(self):
+        return len(self.x)
+
+
+def load_data(config):
+    SAMPLE_RATE = 4000
+    data_dir = config.get('data_dir')
+    verbose = config.getint('verbose')
+
+    # n_mels more than 3 is useless, since some freq_bins will be empty
+    transform = None
+    do_transformation = config.getboolean('mel_spectrogram')
+    n_mfcc = config.getint('n_mffc')
+    n_fft = config.getint('n_fft')
+    win_length = config.getint('win_length')
+    hop_length = config.getint('hop_length')
+    n_mels = config.getint('n_mels')
+    power = config.getint('power', 1)
+    padding = config.get('padding')
+    print(f"mel_spectrogram={do_transformation} n_mffc={n_mfcc} n_fft={n_fft} win_length={win_length}")
+    print(f"hop_length={hop_length}  n_mels={n_mels} power={power}  padding={padding}")
+    if do_transformation:
+        if n_mfcc > 0:
+            transform = torchaudio.transforms.MFCC(
+                sample_rate=SAMPLE_RATE,
+                n_mfcc=n_mfcc,
+                log_mels=True,
+                melkwargs=dict(
+                    n_fft=n_fft,
+                    win_length=win_length,
+                    hop_length=hop_length,
+                    n_mels=n_mels,
+                    power=power  # energy, 2 for power
+                ))
+        else:
+            transform = torchaudio.transforms.MelSpectrogram(
+                sample_rate=SAMPLE_RATE,
+                n_fft=n_fft,
+                win_length=win_length,
+                hop_length=hop_length,
+                n_mels=n_mels,
+                power=power
+            )
+
+    ids, waves, murmurs, outcomes = get_ids_waves_murmurs_outcomes(data_dir, config, verbose)
+    num_patients = len(ids)
+    if verbose > 2:
+        print(f"ids = {ids}")
+        for wave in waves:
+            plot_one_sr_waveform(np.expand_dims(wave, 0), SAMPLE_RATE)
+            if do_transformation:
+                mfcc = transform(wave)
+                plot_spectrogram(mfcc, SAMPLE_RATE)
+                for i in range(n_mfcc):
+                    print_stat(f"mfcc[{i}]", mfcc[i].numpy())
+
+    waves.unsqueeze_(dim=1)  # (14391, 1, 16000)
+    # create 4 datasets/dataloaders: (train, test) * (murmur, outcome)
+    batch_size = config.getint('batch_size')
+    training_percent = config.getint('training_percent')
+    print(f"training_percent={training_percent}%  batch_size={batch_size}")
+
+    num_train_patients = num_patients * training_percent // 100
+    num_train_waves = ids[num_train_patients - 1, 1]
+    print(f"num_train_patients={num_train_patients}  num_train_waves={num_train_waves}")
+
+    test_ids = ids[num_train_patients:]
+    test_ids[:, 1] -= num_train_waves
+
+    train_murmur_dataset = SimpleDataset(waves[:num_train_waves], murmurs[:num_train_waves], transform)
+    train_outcome_dataset = SimpleDataset(waves[:num_train_waves], outcomes[:num_train_waves], transform)
+    train_murmur_dataloader = DataLoader(train_murmur_dataset, batch_size)
+    train_outcome_dataloader = DataLoader(train_outcome_dataset, batch_size)
+    test_murmur_dataset = SimpleDataset(waves[num_train_waves:], murmurs[num_train_waves:], transform)
+    test_outcome_dataset = SimpleDataset(waves[num_train_waves:], outcomes[num_train_waves:], transform)
+    return train_murmur_dataloader, train_outcome_dataloader, test_murmur_dataset, test_outcome_dataset, test_ids
+
 
 if __name__ == "__main__":
     data_dir = 'D:\\git\\challenge2022\\the-circor-digiscope-phonocardiogram-dataset-1.0.3\\training_data'
@@ -493,6 +591,18 @@ if __name__ == "__main__":
     print(f"got {len(data)} data")
     print(f"data[0] = {data[0]}")
 
+    # plot murmur waves
+    for patient_data in data:
+        for location_wave in patient_data['waves'].values():
+            wav = location_wave['wav']
+            wav_len = wav.shape[0]
+            wav_diff = np.diff(wav)
+            n = 4000
+            X = np.linspace(0, n, n)
+            if location_wave['murmur']:
+                plt.plot(X, wav[:n])
+                plt.plot(X, wav_diff[:n])
+                plt.show()
 
     n_fft = 1024
     hop_length = 512   # max_len = 152080, try to get 300 time banks, hop_length = 507 or 508

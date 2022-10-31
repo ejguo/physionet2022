@@ -18,7 +18,7 @@ if __name__ == "__main__":
 
     # load back the model
     model = MurmurModel1().to(device)
-    filename = "murmur3.model"
+    filename = "D:\Enoch\OneDrive\ML\physionet2022\\train_murmur3_output\murmur3.model"
     state_dict = torch.load(filename)
     model.load_state_dict(state_dict)
 
@@ -34,7 +34,7 @@ if __name__ == "__main__":
 
     # get a sample from the dataset for inference
     test_indices = np.random.permutation(len(dataset))
-    n = 100
+    n = len(dataset)
     correct = 0
     for i in test_indices[:n]:
         x, y = dataset[i]  # [batch size, num_channels, fr, time]

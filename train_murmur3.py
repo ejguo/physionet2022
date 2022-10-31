@@ -1,9 +1,9 @@
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from train_helper import SimpleDataset, train
+from train_helper import train
 import torch.nn.functional as F
-from preprocess import get_mfcc3
+from preprocess import get_mfcc3, SimpleDataset
 
 
 """
@@ -192,6 +192,6 @@ if __name__ == "__main__":
     train(model, train_dataloader, loss_fn, optimiser, device, EPOCHS)
 
     # save model
-    filename = "murmur3.model"
+    filename = "D:\Enoch\OneDrive\ML\physionet2022\\train_murmur3_output\murmur3.model"
     torch.save(model.state_dict(), filename)
     print(f"Trained feed forward net saved at {filename}")

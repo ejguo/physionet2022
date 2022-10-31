@@ -20,8 +20,7 @@ from torch.utils.data import DataLoader
 
 from helper_code import load_patient_data, get_murmur, get_outcome, load_challenge_outputs, compare_strings
 from preprocess import get_mfcc3, get_mfcc_outcome
-from train_helper import SimpleDataset
-from preprocess import murmur_classes, outcome_classes
+from preprocess import murmur_classes, outcome_classes, SimpleDataset
 
 def binary_outputs(scalar_outputs, classes):
     bin = np.zeros((len(scalar_outputs), len(classes)), dtype=np.bool_)
