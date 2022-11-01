@@ -5,34 +5,157 @@ import torch
 from torchsummary import summary
 from preprocess import murmur_classes, outcome_classes
 
-# This model is unfinished
-class DacModel(nn.Module):
-    def __init__(self, out_features, dropout_rate):
-        super(DacModel, self).__init__()
 
-        self.encoder = nn.Sequential(
-            nn.Conv2d(1, 16, 2),   nn.BatchNorm2d(16),  F.relu, nn.MaxPool2d(2),
-            nn.Conv2d(16, 32, 2),  nn.BatchNorm2d(32),  F.relu, nn.MaxPool2d(2),
-            nn.Conv2d(32, 64, 2),  nn.BatchNorm2d(64),  F.relu, nn.MaxPool2d(2),
-            nn.Conv2d(64, 128, 2), nn.BatchNorm2d(128), F.relu, nn.MaxPool2d(2),
-            nn.Dropout(dropout_rate),
-            nn.AvgPool2d((1, 11)),
-            nn.Flatten
+class Classify_2Lin(nn.Module):
+    def __init__(self, in_features, out_features):
+        super(Classify_2Lin, self).__init__()
+
+        self.classify = nn.Sequential(
+            nn.Linear(in_features, 128),
+            nn.ReLU(True),
+            nn.Linear(128, out_features),
+            nn.Softmax(dim=1)
         )
 
-        self.classify = nn.Sequential(nn.Linear(128, out_features), nn.Softmax(dim=1))
+    def forward(self, x):
+        return self.classify(x)
 
-        self.decoder = nn.Sequential()
+
+class Encoder_3C0P1B(nn.Module):
+    def __init__(self):
+        super(Encoder_3C0P1B, self).__init__()
+        self.encoder = nn.Sequential(
+            ### Convolutional section
+            nn.Conv2d(1, 8, 3, stride=2, padding=(1, 0)),
+            nn.ReLU(True),
+            nn.Conv2d(8, 16, 3, stride=2, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(True),
+            nn.Conv2d(16, 32, 3, stride=2, padding=1),
+            nn.ReLU(True),
+            ### Flatten layer
+            nn.Flatten(start_dim=1)  # 32 * 5 * 25
+        )
 
     def forward(self, x):
-        x = self.encoder(x)
-        output = self.classify(x)
-        decode = self.decoder(x)
+        return self.encoder(x)
+
+
+
+class Decoder_3C0P2B(nn.Module):
+    def __init__(self):
+        super(Decoder_3C0P2B, self).__init__()
+
+        self.decoder = nn.Sequential(
+            nn.Unflatten(dim=1, unflattened_size=(32, 5, 25)),   # change 32, 3, 3
+            nn.ConvTranspose2d(32, 16, 3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(16, 8, 3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(8),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(8, 1, 3, stride=2, padding=(1,0), output_padding=(1,0)),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        return self.decoder(x)
+
+class Dac_3C0P(nn.Module):
+    def __init__(self, out_features, latent_features):
+        super(Dac_3C0P, self).__init__()
+
+        self.encoder = Encoder_3C0P1B()
+        self.classify = Classify_2Lin(latent_features, out_features)
+        self.decoder = Decoder_3C0P2B()
+
+    def forward(self, x):
+        encode = self.encoder(x)
+        output = self.classify(encode)
+        decode = self.decoder(encode)
         return output, decode
 
-# essentially copy from Eugenia Anello's code
+
+class Classify(nn.Module):
+    def __init__(self, in_features, out_features):
+        super(Classify, self).__init__()
+
+        self.classify = nn.Sequential(
+            nn.Linear(in_features, 16),
+            nn.ReLU(),
+            nn.Linear(16 , out_features),
+            nn.Softmax(dim=1)
+        )
+
+    def forward(self, x):
+        return self.classify(x)
+
+
+class Encoder_3Conv2d(nn.Module):
+    def __init__(self, latent_features):
+        super(Encoder_3Conv2d, self).__init__()
+        self.encoder = nn.Sequential(
+            ### Convolutional section
+            nn.Conv2d(1, 8, 3, stride=2, padding=(1, 0)),
+            nn.ReLU(True),
+            nn.Conv2d(8, 16, 3, stride=2, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(True),
+            nn.Conv2d(16, 32, 3, stride=2, padding=1),
+            nn.ReLU(True),
+            ### Flatten layer
+            nn.Flatten(start_dim=1),
+            ### Linear section
+            nn.Linear(32 * 5 * 25, 128),  # 3 * 3 need change
+            nn.ReLU(True),
+            nn.Linear(128, latent_features)
+        )
+
+    def forward(self, x):
+        return self.encoder(x)
+
+
+
+class Decoder_3Conv2d(nn.Module):
+    def __init__(self, latent_features):
+        super(Decoder_3Conv2d, self).__init__()
+
+        self.decoder = nn.Sequential(
+            nn.Linear(latent_features, 128),
+            nn.ReLU(True),
+            nn.Linear(128, 32 * 5 * 25),    # 3 * 3 need change
+            nn.ReLU(True),
+            nn.Unflatten(dim=1, unflattened_size=(32, 5, 25)),   # change 32, 3, 3
+            nn.ConvTranspose2d(32, 16, 3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(16, 8, 3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(8),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(8, 1, 3, stride=2, padding=(1,0), output_padding=(1,0)),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        return self.decoder(x)
+
+class Dac_3Conv2d(nn.Module):
+    def __init__(self, out_features, latent_features):
+        super(Dac_3Conv2d, self).__init__()
+
+        self.encoder = Encoder_3Conv2d(latent_features)
+        self.classify = Classify(latent_features, out_features)
+        self.decoder = Decoder_3Conv2d(latent_features)
+
+    def forward(self, x):
+        encode = self.encoder(x)
+        output = self.classify(encode)
+        decode = self.decoder(encode)
+        return output, decode
+
+
 class EncDecClass(nn.Module):
-    def __init__(self, out_features, encoded_space_dim):
+    def __init__(self, out_features, latent_features):
         super(EncDecClass, self).__init__()
 
         self.encoder_cnn = nn.Sequential(
@@ -52,16 +175,16 @@ class EncDecClass(nn.Module):
             ### Linear section
             nn.Linear(32 * 5 * 25, 128),    # 3 * 3 need change
             nn.ReLU(True),
-            nn.Linear(128, encoded_space_dim)
+            nn.Linear(128, latent_features)
         )
 
         self.classify = nn.Sequential(
-            nn.Linear(encoded_space_dim, out_features),
+            nn.Linear(latent_features, out_features),
             nn.Softmax(dim=1)
         )
 
         self.decoder = nn.Sequential(
-            nn.Linear(encoded_space_dim, 128),
+            nn.Linear(latent_features, 128),
             nn.ReLU(True),
             nn.Linear(128, 32 * 5 * 25),    # 3 * 3 need change
             nn.ReLU(True),
@@ -79,7 +202,6 @@ class EncDecClass(nn.Module):
     def forward(self, x):
         # print(x.shape)  # torch.Size([64, 1, 40, 201])
         x = self.encoder_cnn(x)
-        # print(x.shape)  # torch.Size([64, 32, 5, 26])
         x = self.encoder_lin(x)
         output = self.classify(x)
         decode = self.decoder(x)
@@ -586,10 +708,9 @@ def build_model(config, device):
     num_murmurs = len(murmur_classes)
     num_outcomes = len(outcome_classes)
     epochs = config.getint('epochs')
-    learning_rate = config.getfloat('learning_rate')
     dropout_rate = config.getfloat('dropout_rate')
     model_type = config.get('model_type')
-    print(f"epochs={epochs}  learning_rate={learning_rate}")
+    print(f"epochs={epochs}")
     murmur_model = None
     outcome_model = None
     if model_type == 'MurmurModel1':
@@ -624,9 +745,17 @@ def build_model(config, device):
         murmur_model = C4F1_2(num_murmurs, dropout_rate)
         outcome_model = C4F1_2(num_outcomes, dropout_rate)
     elif model_type == 'EncDecClass':
-        encoded_space_dim = config.getint('encoded_space_dim')
-        murmur_model = EncDecClass(num_murmurs, encoded_space_dim)
-        outcome_model = EncDecClass(num_outcomes, encoded_space_dim)
+        latent_features = config.getint('latent_features')
+        murmur_model = EncDecClass(num_murmurs, latent_features)
+        outcome_model = EncDecClass(num_outcomes, latent_features)
+    elif model_type == 'Dac_3Conv2d':
+        latent_features = config.getint('latent_features')
+        murmur_model = Dac_3Conv2d(num_murmurs, latent_features)
+        outcome_model = Dac_3Conv2d(num_outcomes, latent_features)
+    elif model_type == 'Dac_3C0P':
+        latent_features = 32 * 5 * 25
+        murmur_model = Dac_3C0P(num_murmurs, latent_features)
+        outcome_model = Dac_3C0P(num_outcomes, latent_features)
 
     murmur_model, outcome_model = murmur_model.to(device), outcome_model.to(device)
     print(f"Murmur model: {murmur_model}")
@@ -635,15 +764,13 @@ def build_model(config, device):
     loss_murmur_weights = np.array(config.get('murmur_loss_weights').split(','), dtype=float)
     print(f"loss_murmur_weights={loss_murmur_weights} CrossEntropyLoss Adam")
     murmur_loss_fn = nn.CrossEntropyLoss(torch.tensor(loss_murmur_weights)).to(device)
-    murmur_optimiser = torch.optim.Adam(murmur_model.parameters(), lr=learning_rate)
 
     loss_outcome_weights = np.array(config.get('outcome_loss_weights').split(','), dtype=float)
     print(f"loss_outcome_weights={loss_outcome_weights}  CrossEntropyLoss Adam")
     # outcome_loss_fn = nn.BCELoss(torch.tensor(loss_outcome_weights)).to(device)
     outcome_loss_fn = nn.CrossEntropyLoss(torch.tensor(loss_outcome_weights)).to(device)
-    outcome_optimiser = torch.optim.Adam(outcome_model.parameters(), lr=learning_rate)
 
-    return murmur_model, outcome_model, murmur_loss_fn, outcome_loss_fn, murmur_optimiser, outcome_optimiser
+    return murmur_model, outcome_model, murmur_loss_fn, outcome_loss_fn
 
 if __name__ == "__main__":
     cnn = BasicCNN(1, 5, 0.2)

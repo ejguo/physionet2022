@@ -16,25 +16,28 @@ class LinearLoss(torch.nn.Module):
         super(LinearLoss, self).__init__()
         self.functions = functions
         self.weights = weights
+        self.loss_0 = None
+        self.loss_1 = None
 
     def forward(self, x, y):
-        z = self.functions[0](x[0], y[0]) * self.weights[0]
-        z += self.functions[1](x[1], y[1]) * self.weights[1]
-        return z
+        self.loss_0 = self.functions[0](x[0], y[0])
+        self.loss_1 = self.functions[1](x[1], y[1])
+        # print(f"loss_0 = {self.loss_0.item()}  loss_1 = {self.loss_1.item()}")
+        return self.loss_0 * self.weights[0] + self.loss_1 * self.weights[1]
 
 class Dac:
     """
         Denoising Autoencoder Classification
     """
 
-    def __init__(self, name, model, data_loader, class_loss_fn, optimiser, config, device):
+    def __init__(self, name, model, data_loader, class_loss_fn, config, device):
         print(f"Running denoising autoencoder classification for {name}:")
         self.name = name
         self.model = model
         self.data_loader = data_loader
         self.class_loss = class_loss_fn
-        self.optimiser = optimiser
         self.config = config
+        self.output_dir = config.get('output_dir')
         self.noise_factor = config.getfloat('noise_factor')
         noise_type = config.get('noise_type')
         if noise_type == 'rand':
@@ -44,22 +47,33 @@ class Dac:
         else:
             raise(f"noise_type {noise_type} is not recognized")
         self.device = device
-        print(f"noise_type = {noise_type}  noise_factor = {self.noise_factor}")
+        print(f"noise_type={noise_type}  noise_factor={self.noise_factor}")
 
         self.dae_loss = torch.nn.MSELoss()
 
     def rand_noise(self, x):
         x_noise = x + self.noise_factor * torch.randn_like(x) * x
+        z = x_noise - x
         return x_noise
 
     def blackout_noise(self, x):
-        return x * (torch.rand(x.shape) > self.noise_factor)
+        y = x * (torch.rand(x.shape) > self.noise_factor)
+        return y
 
     def train_denoising_autoencoder(self):
         """ train x_train_noisy --> [ y_zeros, x_train ] """
         print("train_denoising_autoencoder:")
+        path = os.path.join(self.output_dir, f"{self.name}_dae_model")
+        if self.config.getboolean('resume_training') and os.path.exists(path):
+            print("resume training")
+            state = torch.load(path, map_location=self.device)
+            self.model.load_state_dict(state)
+
+        lr = self.config.getfloat(self.name + '_dae_lr')
+        optimiser = torch.optim.Adam(self.model.parameters(), lr=lr)
+        print(f"Adam optimiser, lr={lr}")
         epochs = self.config.getint(self.name + '_dae_epochs')
-        train_loss = []
+        print(f"{epochs} epochs")
         self.model.train()
         for epoch in range(epochs):
             running_loss = 0.0
@@ -67,47 +81,49 @@ class Dac:
                 x_noise = self.add_noise(x)
                 x = x.to(self.device)
                 x_noise = x_noise.to(self.device)
-                self.optimiser.zero_grad()
+                optimiser.zero_grad()
                 x_decode = self.model(x_noise)[1]
                 loss = self.dae_loss(x, x_decode)
                 loss.backward()
-                self.optimiser.step()
+                optimiser.step()
                 running_loss += loss.item()
 
             running_loss /= len(self.data_loader)
-            train_loss.append(running_loss)
-            print('Epoch: {}/{} \t Mean Square Error Loss: {}'.format(epoch + 1, epochs, running_loss))
-
-        return train_loss
+            print('Epoch: {}/{} \tLoss: {}'.format(epoch + 1, epochs, running_loss))
+        torch.save(self.model.state_dict(), path)
 
     def train_regularized_model(self):
         """ assume self.model has been trained by train_denoising_autoencoder() """
         print("train_regularized_model:")
+        lr = self.config.getfloat(self.name + '_reg_lr')
+        optimiser = torch.optim.Adam(self.model.parameters(), lr=lr)
+        print(f"Adam optimiser, lr = {lr}")
         epochs = self.config.getint(self.name + '_reg_epochs')
+        print(f"{epochs} epochs")
         loss_weights = np.array(self.config.get(self.name + '_dac_loss_weights').split(','), dtype=float)
+        print(f"{self.name}_dac_loss_weights = {loss_weights}")
         loss_fn = LinearLoss((self.class_loss, self.dae_loss), loss_weights).to(self.device)
-        train_loss = []
         self.model.train()
         for epoch in range(epochs):
             running_loss = 0.0
+            class_loss = 0.0
             for x, y in self.data_loader:
                 x_noise = self.add_noise(x)
                 x = x.to(self.device)
                 y = y.to(self.device)
                 x_noise = x_noise.to(self.device)
-                self.optimiser.zero_grad()
+                optimiser.zero_grad()
                 pred = self.model(x_noise)
                 loss = loss_fn((y, x), pred)
                 loss.backward()
-                self.optimiser.step()
-                debug = loss.item()
-                running_loss += debug
+                optimiser.step()
+                running_loss += loss.item()
+                class_loss += loss_fn.loss_0.item()
 
             running_loss /= len(self.data_loader)
-            train_loss.append(running_loss)
-            print('Epoch: {}/{} \t Mean Square Error Loss: {}'.format(epoch + 1, epochs, running_loss))
+            class_loss /= len(self.data_loader)
+            print('Epoch: {}/{} \tLoss: {}\tClass Loss: {}'.format(epoch + 1, epochs, running_loss, class_loss))
 
-        return train_loss
 
     def test(self, dataset):
         print("test:")
@@ -130,8 +146,11 @@ class Dac:
                 confusion[index1, index] += 1
                 if index1 == index:
                     n_correct += 1
-                elif verbose > 1:
-                    print(f"{y.cpu().numpy()} <> {y1.cpu().numpy()}")
+                if verbose > 1:
+                    if index1 == index:
+                        print(f"{y.cpu().numpy()} == {y1.cpu().numpy()}")
+                    else:
+                        print(f"{y.cpu().numpy()} <> {y1.cpu().numpy()}")
                 y_array[i] = y
                 y1_array[i] = y1
                 losses[i] = self.class_loss(y1, y).item()
@@ -152,16 +171,16 @@ if __name__ == "__main__":
         print(f"Using {device}")
 
     train_murmur_dataloader, train_outcome_dataloader, test_murmur_dataset, test_outcome_dataset, test_ids = load_data(config['preprocess'])
-    murmur_model, outcome_model, murmur_loss_fn, outcome_loss_fn, murmur_optimiser, outcome_optimiser = build_model(train_config, device)
+    murmur_model, outcome_model, murmur_loss_fn, outcome_loss_fn = build_model(train_config, device)
 
     output_dir = train_config.get('output_dir')
 
-    murmur_dac = Dac('murmur', murmur_model, train_murmur_dataloader, murmur_loss_fn, murmur_optimiser, train_config, device)
+    murmur_dac = Dac('murmur', murmur_model, train_murmur_dataloader, murmur_loss_fn, train_config, device)
     murmur_dac.train_denoising_autoencoder()
     murmur_dac.train_regularized_model()
     murmur_labels, murmur_probs = murmur_dac.test(test_murmur_dataset)
 
-    outcome_dac = Dac('outcome', outcome_model, train_outcome_dataloader, outcome_loss_fn, outcome_optimiser, train_config, device)
+    outcome_dac = Dac('outcome', outcome_model, train_outcome_dataloader, outcome_loss_fn, train_config, device)
     outcome_dac.train_denoising_autoencoder()
     outcome_dac.train_regularized_model()
     outcome_labels, outcome_probs = outcome_dac.test(test_outcome_dataset)
