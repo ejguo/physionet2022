@@ -4,15 +4,15 @@ from torch.utils.data import Dataset, DataLoader
 
 
 
-def train_single_epoch(model, data_loader, loss_fn, optimiser, device):
-    _, y = next(iter(data_loader))
+def train_single_epoch(model, dataloader, loss_fn, optimiser, device):
+    _, y = next(iter(dataloader))
     y_size = y.shape[1]
     confusion = np.zeros((y_size, y_size), dtype=int)
     losses = list()
     model.train()
     n_total = 0
     n_correct = 0
-    for x, y in data_loader:
+    for x, y in dataloader:
         x, y = x.to(device), y.to(device)
         y1 = model(x)
         index1 = torch.argmax(y1, dim=1)
@@ -33,15 +33,16 @@ def train_single_epoch(model, data_loader, loss_fn, optimiser, device):
     print(f"loss = {np.mean(losses)} accuracy = {n_correct / n_total}")
     print(confusion)
 
+
 def print_parameters(model):
     for p in model.parameters():
         print(p)
 
 
-def train(model, data_loader, loss_fn, optimiser, device, epochs):
+def train(model, dataloader, loss_fn, optimiser, device, epochs):
     for i in range(epochs):
         print(f"Epoch {i + 1}", end=' ')
-        train_single_epoch(model, data_loader, loss_fn, optimiser, device)
+        train_single_epoch(model, dataloader, loss_fn, optimiser, device)
         # print_parameters(model)
     print("Finished training")
 

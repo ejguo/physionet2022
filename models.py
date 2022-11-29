@@ -5,20 +5,135 @@ import torch
 from torchsummary import summary
 from preprocess import murmur_classes, outcome_classes
 
+def output_dim_padding(input_dim, kernel, stride, padding):
+    """
+    :param input_dim:
+    :param kernel:  kernel_size
+    :param stride:
+    :param padding:
+    :return: output_dim, output_padding
+    """
+    x = input_dim - kernel + 2 * padding
+    return x // stride + 1, x % stride
 
-class Classify_2Lin(nn.Module):
-    def __init__(self, in_features, out_features):
-        super(Classify_2Lin, self).__init__()
 
+def get_array_from_config(config, name, dtype, size=0):
+    x = config.get(name)
+    a = np.array(x.split(','), dtype=dtype)
+    if size != 0 and a.size != size:
+        raise Exception(f"{name} {x} should have {size} elements")
+    return a
+
+
+def get_conv2d_parameters(config):
+    """ get 3 conv2d parameters from config file """
+    num_feature = get_array_from_config(config, 'num_feature', int, 4)
+    kernel_size = get_array_from_config(config, 'kernel_size', int, 6)
+    stride = get_array_from_config(config, 'stride', int, 6)
+    padding = get_array_from_config(config, 'padding', int, 6)
+    kernel_size = np.reshape(kernel_size, (3, 2))
+    stride = np.reshape(stride, (3, 2))
+    padding = np.reshape(padding, (3, 2))
+    return num_feature, kernel_size, stride, padding
+
+def compute_output_dim_padding_2d(input_dim, kernel_size, stride, padding):
+    """ config defines 3 conv2d layers and input dim (width, height)
+        return (output_dim, output_padding) for all layers """
+    n_layers = kernel_size.shape[0]
+    n_dim = input_dim.size   # 2d
+    output_dim = np.empty((n_layers+1, n_dim), dtype=int)
+    output_dim[0] = input_dim
+    output_padding = np.empty((n_layers, n_dim), dtype=int)
+    for i in range(n_layers):
+        output_dim[i+1], output_padding[i] = output_dim_padding(output_dim[i], kernel_size[i], stride[i], padding[i])
+    return output_dim[1:], output_padding
+
+class Classify(nn.Module):
+    def __init__(self, in_features, mid_features, out_features):
+        super(Classify, self).__init__()
         self.classify = nn.Sequential(
-            nn.Linear(in_features, 128),
+            nn.Linear(in_features, mid_features),
             nn.ReLU(True),
-            nn.Linear(128, out_features),
+            nn.Linear(mid_features, out_features),
             nn.Softmax(dim=1)
+        )
+    def forward(self, x):
+        return self.classify(x)
+
+class Encode(nn.Module):
+    def __init__(self, config):
+        super(Encode, self).__init__()
+        num_feature, kernel_size, stride, padding = get_conv2d_parameters(config)
+        self.encode = nn.Sequential(
+            nn.Conv2d(num_feature[0], num_feature[1], kernel_size[0], stride[0], padding[0]),
+            nn.BatchNorm2d(num_feature[1]),
+            nn.ReLU(True),
+            nn.Conv2d(num_feature[1], num_feature[2], kernel_size[1], stride[1], padding[1]),
+            nn.BatchNorm2d(num_feature[2]),
+            nn.ReLU(True),
+            nn.Conv2d(num_feature[2], num_feature[3], kernel_size[2], stride[2], padding[2]),
+            nn.BatchNorm2d(num_feature[3]),
+            nn.ReLU(True),
+            nn.Flatten(start_dim=1)
         )
 
     def forward(self, x):
-        return self.classify(x)
+        return self.encode(x)
+
+class Decode(nn.Module):
+    def __init__(self, config):
+        super(Decode, self).__init__()
+        num_feature, kernel_size, stride, padding = get_conv2d_parameters(config)
+        input_dim = get_array_from_config(config, 'input_dim', int, 2)
+        output_dim, output_padding = compute_output_dim_padding_2d(input_dim, kernel_size, stride, padding)
+        self.decoder = nn.Sequential(
+            nn.Unflatten(dim=1, unflattened_size=(num_feature[3], output_dim[0][2], output_dim[1][2])),
+            nn.ConvTranspose2d(num_feature[3], num_feature[2], kernel_size[2], stride[2], padding[2], output_padding[2]),
+            nn.BatchNorm2d(num_feature[2]),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(num_feature[2], num_feature[1], kernel_size[1], stride[1], padding[1], output_padding[1]),
+            nn.BatchNorm2d(num_feature[1]),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(num_feature[1], num_feature[0], kernel_size[0], stride[0], padding[0], output_padding[0]),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        return self.decoder(x)
+
+class Dac_model(nn.Module):
+    def __init__(self, config):
+        super(Dac_model, self).__init__()
+        num_feature, kernel_size, stride, padding = get_conv2d_parameters(config)
+        input_dim = get_array_from_config(config, 'input_dim', int, 2)
+        output_dim, _ = compute_output_dim_padding_2d(input_dim, kernel_size, stride, padding)
+        latent_dim = num_feature[3] * output_dim[0][2] * output_dim[1][2]
+        self.encoder = Encode(config)
+        mid_dim = config.getint('classify_mid_dim')
+        self.classify = Classify(latent_dim, mid_dim, config.getint('num_classes'))
+        self.decoder = Decode(config)
+
+    def forward(self, x):
+        encode = self.encoder(x)
+        output = self.classify(encode)
+        decode = self.decoder(encode)
+        return output, decode
+
+class Basic_model(nn.Module):
+    def __init__(self, config):
+        super(Basic_model, self).__init__()
+        num_feature, kernel_size, stride, padding = get_conv2d_parameters(config)
+        input_dim = get_array_from_config(config, 'input_dim', int, 2)
+        output_dim, _ = compute_output_dim_padding_2d(input_dim, kernel_size, stride, padding)
+        latent_dim = num_feature[3] * output_dim[2][0] * output_dim[2][1]
+        mid_dim = config.getint('classify_mid_dim')
+        self.encoder = Encode(config)
+        self.classify = Classify(latent_dim, mid_dim, config.getint('num_classes'))
+
+    def forward(self, x):
+        encode = self.encoder(x)
+        output = self.classify(encode)
+        return output
 
 
 class Encoder_3C0P1B(nn.Module):
@@ -66,7 +181,7 @@ class Dac_3C0P(nn.Module):
         super(Dac_3C0P, self).__init__()
 
         self.encoder = Encoder_3C0P1B()
-        self.classify = Classify_2Lin(latent_features, out_features)
+        self.classify = Classify(latent_features, 128, out_features)
         self.decoder = Decoder_3C0P2B()
 
     def forward(self, x):
@@ -74,21 +189,6 @@ class Dac_3C0P(nn.Module):
         output = self.classify(encode)
         decode = self.decoder(encode)
         return output, decode
-
-
-class Classify(nn.Module):
-    def __init__(self, in_features, out_features):
-        super(Classify, self).__init__()
-
-        self.classify = nn.Sequential(
-            nn.Linear(in_features, 16),
-            nn.ReLU(),
-            nn.Linear(16 , out_features),
-            nn.Softmax(dim=1)
-        )
-
-    def forward(self, x):
-        return self.classify(x)
 
 
 class Encoder_3Conv2d(nn.Module):
@@ -144,7 +244,7 @@ class Dac_3Conv2d(nn.Module):
         super(Dac_3Conv2d, self).__init__()
 
         self.encoder = Encoder_3Conv2d(latent_features)
-        self.classify = Classify(latent_features, out_features)
+        self.classify = Classify(latent_features, 16, out_features)
         self.decoder = Decoder_3Conv2d(latent_features)
 
     def forward(self, x):
@@ -775,3 +875,4 @@ def build_model(config, device):
 if __name__ == "__main__":
     cnn = BasicCNN(1, 5, 0.2)
     summary(cnn.cuda(), (1, 64, 161))
+
