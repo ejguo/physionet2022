@@ -23,12 +23,11 @@ def train_single_epoch(model, dataloader, loss_fn, optimiser, device):
         n_correct += torch.sum(index1 == index)
         loss = loss_fn(y1, y)
         losses.append(loss.item())
-
         optimiser.zero_grad()
         loss.backward()
+        optimiser.step()
         # print(f"min {torch.min(model.conv1.weight.grad)} {torch.min(model.conv2.weight.grad)} {torch.min(model.conv3.weight.grad)} {torch.min(model.conv4.weight.grad)}")
         # print(f"max {torch.max(model.conv1.weight.grad)} {torch.max(model.conv2.weight.grad)} {torch.max(model.conv3.weight.grad)} {torch.max(model.conv4.weight.grad)}")
-        optimiser.step()
 
     print(f"loss = {np.mean(losses)} accuracy = {n_correct / n_total}")
     print(confusion)
@@ -87,7 +86,7 @@ def test(model, dataset, loss_fn, device, verbose):
         print(confusion)
 
         return y_array.numpy(), y1_array.numpy()
-
+    raise
 
 def gen_wave_ids(ids):
     """convert ids[i,j] into a list o.f ids, each for a wave"""

@@ -101,23 +101,6 @@ class Decode(nn.Module):
     def forward(self, x):
         return self.decoder(x)
 
-class Dac_model(nn.Module):
-    def __init__(self, config):
-        super(Dac_model, self).__init__()
-        num_feature, kernel_size, stride, padding = get_conv2d_parameters(config)
-        input_dim = get_array_from_config(config, 'input_dim', int, 2)
-        output_dim, _ = compute_output_dim_padding_2d(input_dim, kernel_size, stride, padding)
-        latent_dim = num_feature[3] * output_dim[0][2] * output_dim[1][2]
-        self.encoder = Encode(config)
-        mid_dim = config.getint('classify_mid_dim')
-        self.classify = Classify(latent_dim, mid_dim, config.getint('num_classes'))
-        self.decoder = Decode(config)
-
-    def forward(self, x):
-        encode = self.encoder(x)
-        output = self.classify(encode)
-        decode = self.decoder(encode)
-        return output, decode
 
 class Basic_model(nn.Module):
     def __init__(self, config):
@@ -135,6 +118,16 @@ class Basic_model(nn.Module):
         output = self.classify(encode)
         return output
 
+class Dac_model(Basic_model):
+    def __init__(self, config):
+        super(Dac_model, self).__init__(config)
+        self.decoder = Decode(config)
+
+    def forward(self, x):
+        encode = self.encoder(x)
+        output = self.classify(encode)
+        decode = self.decoder(encode)
+        return output, decode
 
 class Encoder_3C0P1B(nn.Module):
     def __init__(self):
@@ -154,7 +147,6 @@ class Encoder_3C0P1B(nn.Module):
 
     def forward(self, x):
         return self.encoder(x)
-
 
 
 class Decoder_3C0P2B(nn.Module):

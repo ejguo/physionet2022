@@ -221,6 +221,7 @@ def get_ids_waves_murmurs_outcomes(data_dir, config, verbose):
     # win_length = config.getint('win_length')
     # hop_length = config.getint('hop_length')
     # wave_len += win_length - hop_length  # this extra size is treated as padding
+    torch.manual_seed(0)   # fix seed so that test dataset remain in test even after rerun
     rand_indices = torch.randperm(num_patients)
 
     # find num_waves = 14391
@@ -585,33 +586,35 @@ def load_data(config):
 
 
 if __name__ == "__main__":
-    data_dir = 'D:\\git\\challenge2022\\the-circor-digiscope-phonocardiogram-dataset-1.0.3\\training_data'
+    data_dir = 'the-circor-digiscope-phonocardiogram-dataset-1.0.3\\training_data'
     verbose = 1
     data = get_data(data_dir, verbose)
     print(f"got {len(data)} data")
     print(f"data[0] = {data[0]}")
 
     # plot murmur waves
-    for patient_data in data:
-        for location_wave in patient_data['waves'].values():
-            wav = location_wave['wav']
-            wav_len = wav.shape[0]
-            wav_diff = np.diff(wav)
-            n = 4000
-            X = np.linspace(0, n, n)
-            if location_wave['murmur']:
-                plt.plot(X, wav[:n])
-                plt.plot(X, wav_diff[:n])
-                plt.show()
+    if verbose > 1:
+        for patient_data in data:
+            for location_wave in patient_data['waves'].values():
+                wav = location_wave['wav']
+                wav_len = wav.shape[0]
+                # wav_diff = np.diff(wav)
+                n = 4000
+                X = np.linspace(0, n, n)
+                if location_wave['murmur']:
+                    plt.plot(X, wav[:n])
+                    # plt.plot(X, wav_diff[:n])
+                    plt.show()
 
-    n_fft = 1024
-    hop_length = 512   # max_len = 152080, try to get 300 time banks, hop_length = 507 or 508
-    n_mels = 3
+    n_fft = 128
+    hop_length = 60   # max_len = 152080, try to get 300 time banks, hop_length = 507 or 508
+    n_mels = 4
     signals, murmurs = get_mfcc_outcome(data_dir, n_fft, hop_length, n_mels, verbose)
     print(f"got {signals.size(dim=0)} mfcc")
     print(f"signal size = {signals.size()}")
     for i in range(10):
-        plot_spectrogram(signals[i], 4000)
+        plot_spectrogram(signals[i])
+        plot_mel_fbank(signals[i])
     # print(f"mfcc[0] = {signals[0]}")
     count = torch.count_nonzero(murmurs, dim=0)
     print(f"count murmurs {count}")

@@ -13,12 +13,13 @@ from preprocess import load_data
 from train_helper import train, test
 
 
-def train_basic(name, config, dataloader, device, verbose=1):
+def train_basic(name, config, output_dir, dataloader, device, verbose=1):
     print(f"training basic model: {name}, verbose={verbose}")
     config = config[name]
     # create model
     model = Basic_model(config).to(device)
     print(model)
+
     # create loss_fn
     loss_weights = np.array(config.get('loss_weights').split(','), dtype=float)
     print(f"loss_weights={loss_weights} CrossEntropyLoss Adam")
@@ -38,7 +39,14 @@ def train_basic(name, config, dataloader, device, verbose=1):
     y_size = y.shape[1]
     confusion = np.zeros((y_size, y_size), dtype=int)
 
-    # train
+    path = os.path.join(output_dir, f"{name}_model")
+    if config.getboolean('resume_training') and os.path.exists(path):
+        print("resume training")
+        state = torch.load(path, map_location=device)
+        model.load_state_dict(state)
+
+    # train, the following is the same as calling
+    # train_helper.train(model, dataloader, loss_fn, optimiser, device, epochs)
     model.train()
     for i in range(epochs):
         losses = list()
@@ -46,6 +54,7 @@ def train_basic(name, config, dataloader, device, verbose=1):
         n_correct = 0
         for x, y in dataloader:
             x, y = x.to(device), y.to(device)
+            optimiser.zero_grad()
             y1 = model(x)
             index1 = torch.argmax(y1, dim=1)
             index = torch.argmax(y, dim=1)
@@ -55,53 +64,19 @@ def train_basic(name, config, dataloader, device, verbose=1):
             n_correct += torch.sum(index1 == index)
             loss = loss_fn(y1, y)
             losses.append(loss.item())
-
-            optimiser.zero_grad()
             loss.backward()
+            optimiser.step()
             # print(f"min {torch.min(model.conv1.weight.grad)} {torch.min(model.conv2.weight.grad)} {torch.min(model.conv3.weight.grad)} {torch.min(model.conv4.weight.grad)}")
             # print(f"max {torch.max(model.conv1.weight.grad)} {torch.max(model.conv2.weight.grad)} {torch.max(model.conv3.weight.grad)} {torch.max(model.conv4.weight.grad)}")
-            optimiser.step()
 
         # print(f"len(dataloader) = {len(dataloader)} =?= n_total = {n_total}")
-        print(f"loss = {np.mean(losses)} accuracy = {n_correct / n_total}")
+        print(f"epoch {i} loss = {np.mean(losses)} accuracy = {n_correct / n_total}")
         print(confusion)
 
     return model, loss_fn
 
-def test(model, dataset, loss_fn, device, verbose):
-    num_samples = len(dataset)
-    y_size = dataset[0][1].shape[0]
-    y_array = torch.zeros((num_samples, y_size), dtype=torch.float32)
-    y1_array = torch.zeros((num_samples, y_size), dtype=torch.float32)
-    losses = np.zeros(num_samples, dtype=float)
-    confusion = np.zeros((y_size, y_size), dtype=int)
-    with torch.set_grad_enabled(False):
-        model.eval()
-        n_correct = 0
-        for i in range(len(dataset)):
-            x, y = dataset[i]
-            x, y = x.to(device), y.to(device)
-            y1 = model(x.unsqueeze(0))[0]
-            index1 = torch.argmax(y1)
-            index = torch.argmax(y)
-            confusion[index1, index] += 1
-            if index1 == index:
-                n_correct += 1
-            elif verbose > 1:
-                print(f"{y.cpu().numpy()} <> {y1.cpu().numpy()}")
-            y_array[i] = y
-            y1_array[i] = y1
-            losses[i] = loss_fn(y1, y).item()
-
-        print(f"Test loss: {np.mean(losses)} accuracy: {n_correct / len(dataset)}")
-        print(f"Confusion matrix:")
-        print(confusion)
-
-        return y_array.numpy(), y1_array.numpy()
-
-
-def test_basic(name, config, train_dataloader, test_dataset, device, verbose):
-    model, loss_fn = train_basic(name, config, train_dataloader, device, verbose)
+def test_basic(name, config, output_dir, train_dataloader, test_dataset, device, verbose):
+    model, loss_fn = train_basic(name, config, output_dir, train_dataloader, device, verbose)
     torch.save(model.state_dict(), os.path.join(output_dir, f"{name}_model"))
     return test(model, test_dataset, loss_fn, device, verbose)
     
@@ -119,8 +94,8 @@ if __name__ == "__main__":
 
     train_murmur_dataloader, train_outcome_dataloader, test_murmur_dataset, test_outcome_dataset, test_ids = load_data(config['preprocess'])
 
-    murmur_labels, murmur_probs = test_basic('murmur_basic', config, train_murmur_dataloader, test_murmur_dataset, device, verbose)
-    outcome_labels, outcome_probs = test_basic('outcome_basic', config, train_outcome_dataloader, test_outcome_dataset, device, verbose)
+    murmur_labels, murmur_probs = test_basic('murmur_basic', config, output_dir, train_murmur_dataloader, test_murmur_dataset, device, verbose)
+    outcome_labels, outcome_probs = test_basic('outcome_basic', config, output_dir, train_outcome_dataloader, test_outcome_dataset, device, verbose)
 
     print_evaluation(murmur_labels, murmur_probs, outcome_labels, outcome_probs)
 
