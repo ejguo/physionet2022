@@ -1,1 +1,1 @@
-[embed]https://github.com/ejguo/physionet2022/blob/master/Latex/enoch.pdf[/embed]
+[enoch.pdf](https://github.com/ejguo/physionet2022/files/10367627/enoch.pdf)
