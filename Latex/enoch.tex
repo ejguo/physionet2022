@@ -11,6 +11,11 @@
 % send me a note!  George Moody (george@mit.edu)
 %
 \documentclass[twocolumn]{cinc}
+\usepackage[colorlinks = true,
+            linkcolor = blue,
+            urlcolor  = blue,
+            citecolor = blue,
+            anchorcolor = blue]{hyperref}
 \usepackage{graphicx}
 \begin{document}
 \bibliographystyle{cinc}
@@ -30,10 +35,14 @@ George B.\ Mood PhysioNet Challenge 2022}
 %  (no street addresses or postcodes).
 % If there are multiple affiliations, use superscript numerals to associate
 %  each author with his or her affiliations, as in the example below.
+%\author {Ann Author$^{1}$, Charles D Coauthor$^{2}$ (note - no ``and", no periods, no degrees) \\
+%\ \\ % leave an empty line between authors and affiliation
+% $^1$ Institution, City, Country (note - full address at end of paper) \\
+%$^2$  Second Institution, Other City, Country  }
 
 \author {Enoch Guo
 \ \\ % leave an empty line between authors and affiliation
-  Stony Brook School, New York}
+  The Stony Brook School, New York}
 
 \maketitle
 \begin{abstract}
@@ -44,20 +53,20 @@ We present a machine learning method for heart murmur detection from phonocardio
 
 \section{Introduction}
 
-The goal of the Challenge is to identify the presence, absence, or unclear cases of murmurs and the normal vs. abnormal clinical outcomes from heart sound recordings collected from multiple auscultation locations on the body using a digital stethoscope.
+The goal of the Challenge is to identify the \textit{present}, \textit{absent}, or \textit{unknown} cases of murmurs and the \textit{normal} vs.\ \textit{abnormal} clinical outcomes from heart sound recordings collected from multiple auscultation locations on the body using a digital stethoscope.
 
 %\subsection{Dataset}
 
 The Challenge data contain one or more heart sound recordings for 1568 patients as well as routine demographic information about the patients from whom the recordings were taken. The Challenge labels consist of two types:
 
 \begin{enumerate}
-\item Murmur-related labels indicate whether an expert annotator detected the presence or absence of a murmur in a patient from the recordings or whether the annotator was unsure about the presence or absence of a murmur.
-\item Outcome-related labels indicate the normal or abnormal clinical outcome diagnosed by a medical expert.
+\item \textit{Murmur}-related labels indicate whether an expert annotator detected the \textit{presence} or \textit{absence} of a murmur in a patient from the recordings or whether the annotator was unsure (\textit{unknown}) about the presence or absence of a murmur.
+\item \textit{Outcome}-related labels indicate the \textit{normal} or \textit{abnormal} clinical outcome diagnosed by a medical expert.
 \end{enumerate}
 
 The Challenge data is organized into three distinct sets: training, validation, and test sets. The organizers have publicly released 60\% of the dataset as the training set of the 2022 Challenge, and have retained the remaining 40\% as a hidden data for validation and test purposes. 
 
-Therefore, we are given the training set that contains 3163 recordings from 942 patients. The public training set contains heart sound recordings, routine demographic information, murmur-related labels (presence, absence, or unknown), outcome-related labels (normal or abnormal), annotations of the murmur characteristics (location, timing, shape, pitch, quality, and grade), and heart sound segmentations. The private validation and test sets only contain heart sound recordings and demographic information.
+Therefore, we are given the training set that contains 3163 recordings from 942 patients. The public training set contains heart sound recordings, routine demographic information, \textit{murmur}-related labels (\textit{presence}, \textit{absence}, or \textit{unknown}), \textit{outcome}-related labels (\textit{normal} or \textit{abnormal}), annotations of the murmur characteristics (location, timing, shape, pitch, quality, and grade), and heart sound segmentations. The private validation and test sets only contain heart sound recordings and demographic information.
 
 
 %\subsection{Challenge Scoring}
@@ -81,17 +90,48 @@ The PCG recordings have different lengths, varying from 20608 to 258048 data poi
 
 PCG consists of cycles; each cycle consists of four states: S1, S2, systole and diastole. 
 We split each recording into 3-second long overlapping segments, which is long enough to determine abnormality of heart sound.
-Each split wave consists of 12000 data points.
+Each split wave consists of 12000 data points. In the following figure, we show a wave segment; to see the waveform better, we show a 1-second segment, instead of 3-second.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=7.9cm]{wave_1s.png}
+\caption{1-second PCG Waveform}
+\label{wave}
+\end{figure}
+
 
 \section{MFCC}
 
-Mel-Frequency Cepstral Coefficients (MFCC) \cite{mfcc} has been widely used in speech recognition. We extract 4 frequency bands, because if we extracted more frequency bands, other frequency bands would be mostly empty. Thus each one-dimensional wave (12000 long) is transformed into a two-dimensional heat map, of size $(4, 201)$, using ${\tt win\_length}=100$ and ${\tt hop\_length}=60$. 
+Mel-Frequency Cepstral Coefficients (MFCC) \cite{mfcc} has been widely used in speech recognition. For each of the 3-second waveforms, we extract 4 frequency bands. If we extracted more frequency bands, other frequency bands would be mostly empty. Thus each one-dimensional wave (12000 long) is transformed into a two-dimensional heat map, of size $(4, 201)$, using ${\tt win\_length}=100$ and ${\tt hop\_length}=60$. 
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=7.9cm]{mfcc_1s_9.png}
+\caption{Log Scale MFCC}
+\label{mfcc_db}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=7.9cm]{mfcc_fbank_9.png}
+\caption{MFCC}
+\label{mfcc}
+\end{figure}
+
 
 \section{Basic CNN}
 
-We use three layers of convolution.
+We treat the two-dimensional heat map as a two-dimensional image, and apply two CNNs: one for the \textit{murmur} model and one for the \textit{outcome} model. Let $X$ denote the input and $Y$ denote the output label. Our model can be described in the following figure, 
+\[\hbox{Input}\to\hbox{Label}\]
+\def\mapright#1{\smash{\mathop{\;\relbar\joinrel\relbar\joinrel\relbar\joinrel\longrightarrow\;}\limits^{\it#1}}}
+\[  X\mapright{Encode}Z\mapright{Classify}Y\]
+where $X$ denotes
+the inputs, which are the two-dimensional images; $Y$ denotes the output label, which is $(\it Present, Unknown, Absent)$ for the \textit{murmur} model, and $(\it Abnormal, Normal)$ for the \textit{outcome} model; $Z$ is called the latent layer. For both models, 
+we use three layers of convolution in CNN. 
+
+Both models look like:
 \begin{enumerate}
-\item Encode:
+\item \textit{Encode}:
 \begin{enumerate}
 \item Conv2d
 \item BatchNorm2d
@@ -104,7 +144,7 @@ We use three layers of convolution.
 \item ReLU
 \item Flatten
 \end{enumerate}
-\item Classify:
+\item \textit{Classify}:
 \begin{enumerate}
 \item Dense
 \item ReLU
@@ -121,20 +161,26 @@ We use three layers of convolution.
 \caption{Denosing Autoencoder Classification Model}
 \label{FIGURA1}
 \end{figure}
+\[  X'\mapright{Encode}Z\matrix{&Y\cr
+  \nearrow\scriptstyle{\it Classify}\cr
+  \cr
+  \searrow\scriptstyle{\it Decode}\cr
+  &X\cr}\]
 
 \textbf{Training algorithm}: Let $X$ be input points (cyan), of size $(C,W,H)=(1, 4,201)$, and $Y$ be the classification labels (green).
 \begin{enumerate}
-\item Add noise: $X'={\it add\_noise}(X)$. $X'$ is blue. We have two methods to add noise: blackout and random. Blackout method chooses a small sample points (10\%) to zero out their values; Random method changes the values by randomly with $\mu=0$ and a small $\sigma$, say, 0.1.
-\item Denoising autoencoder decode: Let $Z$ be the latent layer (red). We train $X'\to Z\to (Y, X)$, where $X'\to Z$ is encode; $Z\to Y$ is classify; and $Z\to X$ is decode (decode consists of the reversed steps of encode). In this step, the loss function for classify is zero. The model is called regularized after this step.
-\item Classify from the regularized model: continue to train using cross entropy loss function for classify: $Z\to Y$.
+\item \textit{Add noise}: $X'={\it add\_noise}(X)$. $X'$ is blue. We have two methods to add noise: \textit{blackout} and \textit{random}. The \textit{blackout} method chooses a small sample points (10\%) to zero out their values; the \textit{random} method changes the values by randomly with $\mu=0$ and a small $\sigma$, say, 0.1.
+\item \textit{Denoising autoencoder decode}: Let $Z$ be the latent layer (red). We train $X'\to Z\to (Y, X)$, where $X'\to Z$ is the \textit{Encode} step above; $Z\to Y$ is the \textit{Classify} step; and $Z\to X$ is the \textit{Decode} step. In this step, the loss function for classify is zero. After \textit{denoising autoencoder decode}, the model is called \textit{regularized}.
+\item \textit{Classify from the regularized model}: continue to train the model $X'\to Z\to (Y, X)$
+using cross entropy loss function for \textit{classify}: $Z\to Y$.
 
 \end{enumerate}
 
-Each step in Decode is the inverse function of the 
-corresponding Encode step, in reverse order.
 
+In addition to the steps \textit{Encode} and \textit{Classify}, denoising autoencoder classification uses the \textit{Decode} step, which is the inverse function of the 
+corresponding \textit{Encode} step, in the reverse order.
 \begin{enumerate}\addtocounter{enumi}{2}
-\item Decode
+\item \textit{Decode}
 \begin{enumerate}
 \item Unflatten
 \item ConvTranspose2d
@@ -148,6 +194,52 @@ corresponding Encode step, in reverse order.
 \end{enumerate}
 \end{enumerate}
 
+\section{Results}
+Our models are to classify 3-second waves. To classify the patients, we use the mean values of the probabilities for their waves.
+
+Murmur scores:
+\begin{verbatim}
+AUROC=0.803
+AUPRC=0.671
+F-measure=0.607
+Accuracy=0.817
+Weighted Accuracy=0.624
+Cost=20202.851
+\end{verbatim}
+
+
+Outcome scores:
+\begin{verbatim}
+AUROC=0.616
+AUPRC=0.624
+F-measure=0.591
+Accuracy=0.592
+Weighted Accuracy=0.557
+Cost=15119.790
+\end{verbatim}
+
+Murmur scores (per class):
+\begin{verbatim}
+Classes,Present,Unknown,Absent
+AUROC,0.788,0.792,0.830
+AUPRC,0.613,0.481,0.919
+F-measure,0.560,0.364,0.897
+Accuracy,0.438,0.333,0.962
+\end{verbatim}
+
+
+Outcome scores (per class):
+\begin{verbatim}
+Classes,Abnormal,Normal
+AUROC,0.615,0.616
+AUPRC,0.635,0.612
+F-measure,0.580,0.603
+Accuracy,0.541,0.647
+\end{verbatim}
+
+\section{Code}
+Our code can be found at the following link: \hfill\hbox{}
+\href{https://github.com/ejguo/physionet2022}{https://github.com/ejguo/physionet2022}
 
 %All references should be included in the text in square brackets in their
 %order of appearance, e.g., \cite{tag}, \cite{tag,ito}, or
@@ -167,7 +259,10 @@ corresponding Encode step, in reverse order.
  \bibitem{mfcc} T. Ganchev, N. Fakotakis, G. Kokkinakis, ``Comparative Evaluation of Various MFCC Implementations on the Speaker Verification Task,'' 
  \emph{Proc. of the SPECOM-2005}, October 17-19, 2005. Patras, Greece. Vol. 1, pp.191-194.
  
-
+\bibitem{jdocter} Jordan Docter, Richard Gong, ``Using Denoising Autoencoders in Multi-Task Learning to Regularize Classification,'' 
+\emph{http://github.com/jdocter/Denoising-Autoencoder} 
+\emph{-Classification/blob/master/}
+\emph{DenoisingAutoencoderClassification\_2019.pdf}.
       
 }\end{thebibliography}
 
